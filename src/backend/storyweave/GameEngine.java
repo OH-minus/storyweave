@@ -79,13 +79,6 @@ public final class GameEngine {
         }
         Player player = new Player(UUID.randomUUID().toString(), name, Objects.requireNonNull(story), playerDurationMillis);
         players.add(player);
-        if (players.size() == expectedPlayers) {
-            phase = Phase.READING;
-            phaseDeadline = now() + readDurationMillis;
-            if (readDurationMillis == 0) {
-                beginPlaying();
-            }
-        }
         return new JoinResult(player.id, player.story, Math.toIntExact(readDurationMillis / 1_000));
     }
 
@@ -154,7 +147,7 @@ public final class GameEngine {
     }
 
     public synchronized void assignStories(Map<String, String> storiesByPlayerId) {
-        if (phase != Phase.READING && phase != Phase.PLAYING) {
+        if (phase != Phase.WAITING || players.size() != expectedPlayers) {
             throw new GameException(409, "Stories can only be assigned after all players join");
         }
         Map<String, String> incoming = new HashMap<>(storiesByPlayerId);
@@ -167,6 +160,11 @@ public final class GameEngine {
         }
         if (!incoming.isEmpty()) {
             throw new GameException(400, "Received stories for unknown players");
+        }
+        phase = Phase.READING;
+        phaseDeadline = now() + readDurationMillis;
+        if (readDurationMillis == 0) {
+            beginPlaying();
         }
     }
 

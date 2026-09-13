@@ -35,9 +35,10 @@ public final class RemoteStoryService implements StoryService {
     }
 
     @Override
-    public String createStory(String theme, String playerName, int version, int playerCount) throws Exception {
+    public String createStory(String theme, String storyContext, int version, int playerCount) throws Exception {
         String prompt = PromptTemplates.load("story-generation.md", Map.of(
                 "theme", theme,
+                "storyContext", storyContext,
                 "versionIndex", Integer.toString(version + 1),
                 "playerCount", Integer.toString(playerCount)
         ));
@@ -50,7 +51,7 @@ public final class RemoteStoryService implements StoryService {
                 "sharedStory", sharedStory,
                 "referenceStory", referenceStory
         ));
-        return parseScore(complete(prompt, 20, true));
+        return parseScore(complete(prompt, 20, true, true));
     }
 
     @Override
@@ -60,21 +61,40 @@ public final class RemoteStoryService implements StoryService {
                 "sharedStory", sharedStory,
                 "insertedTokens", insertedTokens
         ));
-        return parseScore(complete(prompt, 20, true));
+        return parseScore(complete(prompt, 20, true, true));
     }
 
     private String complete(String prompt, int maxTokens) throws IOException, InterruptedException {
-        return complete(prompt, maxTokens, true);
+        return complete(prompt, maxTokens, true, false);
     }
 
     private String complete(String prompt, int maxTokens, boolean disableReasoning) throws IOException, InterruptedException {
+        return complete(prompt, maxTokens, disableReasoning, false);
+    }
+
+    private String complete(String prompt, int maxTokens, boolean disableReasoning, boolean integerOutput)
+            throws IOException, InterruptedException {
         Map<String, Object> payload = new HashMap<>();
         payload.put("model", model);
         payload.put("temperature", 0.4);
         payload.put("max_tokens", maxTokens);
         payload.put("messages", List.of(Map.of("role", "user", "content", prompt)));
-        if (disableReasoning && supportsReasoningToggle(model)) {
-            payload.put("thinking", Map.of("type", "disabled"));
+        if (supportsReasoningToggle(model)) {
+            payload.put("thinking", Map.of("type", disableReasoning ? "disabled" : "enabled"));
+        }
+        if (integerOutput) {
+            payload.put("response_format", Map.of(
+                    "type", "json_schema",
+                    "json_schema", Map.of(
+                            "name", "score",
+                            "strict", true,
+                            "schema", Map.of(
+                                    "type", "integer",
+                                    "minimum", 0,
+                                    "maximum", 100
+                            )
+                    )
+            ));
         }
         ServerLogger.logLlmRequest(endpoint.toString(), model, maxTokens, prompt);
         HttpRequest request = HttpRequest.newBuilder(endpoint)
@@ -130,9 +150,12 @@ public final class RemoteStoryService implements StoryService {
     }
 
     private static int parseScore(String response) throws IOException {
-        String digits = response.replaceAll("[^0-9-]", "");
+        String integer = response.strip();
+        if (!integer.matches("-?(0|[1-9][0-9]*)")) {
+            throw new IOException("LLM did not return an integer score: " + response);
+        }
         try {
-            return Math.clamp(Integer.parseInt(digits), 0, 100);
+            return Math.clamp(Integer.parseInt(integer), 0, 100);
         } catch (NumberFormatException exception) {
             throw new IOException("LLM did not return an integer score: " + response, exception);
         }

@@ -7,6 +7,7 @@ import java.util.Random;
 final class GameEngineTest {
     static void run() {
         validatesNamesAndTokens();
+        startsReadingAfterStoriesAreAssigned();
         runsTurnsAndBuildsStory();
         expiresTimersAndRanksScores();
     }
@@ -26,11 +27,29 @@ final class GameEngineTest {
         check(!GameEngine.isValidToken("123"), "numbers should not be accepted as words");
     }
 
+    private static void startsReadingAfterStoriesAreAssigned() {
+        MutableClock clock = new MutableClock(1_000);
+        GameEngine game = new GameEngine(2, 20, 30, 5, clock, new Random(0));
+        GameEngine.JoinResult alice = game.join("Alice", "");
+        GameEngine.JoinResult bob = game.join("Bob", "");
+
+        clock.advanceMillis(30_000);
+        check(game.phase() == GameEngine.Phase.WAITING,
+                "reading should not start while private stories are being generated");
+
+        game.assignStories(Map.of(alice.playerId(), "Story A", bob.playerId(), "Story B"));
+        Map<String, Object> state = game.snapshot(alice.playerId());
+        check(state.get("phase").equals("READING"), "story assignment should start reading");
+        check(state.get("phaseRemainingMillis").equals(20_000L),
+                "reading should start with its full configured duration");
+    }
+
     private static void runsTurnsAndBuildsStory() {
         MutableClock clock = new MutableClock(1_000);
         GameEngine game = new GameEngine(2, 0, 20, 5, clock, new Random(4));
         GameEngine.JoinResult alice = game.join("Alice", "Alice reference");
         GameEngine.JoinResult bob = game.join("Bob", "Bob reference");
+        game.assignStories(Map.of(alice.playerId(), "Alice reference", bob.playerId(), "Bob reference"));
         Map<String, Object> state = game.snapshot(alice.playerId());
         check(state.get("phase").equals("PLAYING"), "zero reading time should start play immediately");
         check(state.get("story").equals("Alice reference"), "a player should see only their reference story");
@@ -53,6 +72,7 @@ final class GameEngineTest {
         GameEngine game = new GameEngine(2, 0, 1, 1, clock, new Random(0));
         GameEngine.JoinResult alice = game.join("Alice", "Reference A");
         GameEngine.JoinResult bob = game.join("Bob", "Reference B");
+        game.assignStories(Map.of(alice.playerId(), "Reference A", bob.playerId(), "Reference B"));
         clock.advanceMillis(1_000);
         game.phase();
         check(game.phase() == GameEngine.Phase.PLAYING, "one active player should keep the game running");

@@ -128,7 +128,7 @@ public final class GameServer implements AutoCloseable {
     }
 
     private void assignStoriesWhenReady() throws Exception {
-        if (storiesAssigned.get() || game.phase() == GameEngine.Phase.WAITING) {
+        if (storiesAssigned.get() || game.playersForScoring().size() < expectedPlayers) {
             return;
         }
         if (!storiesAssigned.compareAndSet(false, true)) {
@@ -137,10 +137,15 @@ public final class GameServer implements AutoCloseable {
         try {
             List<GameEngine.PlayerForScoring> players = game.playersForScoring();
             Map<String, String> storiesByPlayerId = new HashMap<>();
+            StringBuilder storyContext = new StringBuilder();
             for (int version = 0; version < players.size(); version++) {
                 GameEngine.PlayerForScoring player = players.get(version);
-                String story = storyService.createStory(theme, player.name(), version, expectedPlayers);
+                String story = storyService.createStory(theme, storyContext.toString(), version, expectedPlayers);
                 storiesByPlayerId.put(player.id(), story);
+                if (!storyContext.isEmpty()) {
+                    storyContext.append("\n\n");
+                }
+                storyContext.append("Variation ").append(version + 1).append(":\n").append(story);
             }
             game.assignStories(storiesByPlayerId);
         } catch (Exception exception) {

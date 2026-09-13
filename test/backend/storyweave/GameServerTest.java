@@ -10,8 +10,9 @@ import java.util.Map;
 
 final class GameServerTest {
     static void run() throws Exception {
-        GameEngine game = new GameEngine(2, 20, 30, 5);
-        TrackingStoryService storyService = new TrackingStoryService();
+        MutableClock clock = new MutableClock(1_000);
+        GameEngine game = new GameEngine(2, 20, 30, 5, clock, new java.util.Random(0));
+        TrackingStoryService storyService = new TrackingStoryService(clock);
         try (GameServer server = new GameServer(0, game, storyService, "lost cities", 2)) {
             server.start();
             String base = "http://localhost:" + server.port();
@@ -38,10 +39,16 @@ final class GameServerTest {
                     "versions should be assigned sequentially without retry inflation");
             check(calls.get(0).playerCount() == 2 && calls.get(1).playerCount() == 2,
                     "each generated story should use expected player count");
+            check(calls.get(0).storyContext().isEmpty(),
+                    "the first story should be generated without prior-story context");
+            check(calls.get(1).storyContext().equals("Variation 1:\nStory v0"),
+                    "later stories should receive previously generated variations as context");
             String aliceId = String.valueOf(Json.parseObject(aliceJoin.body()).get("playerId"));
             HttpResponse<String> state = get(client, base + "/api/state?playerId=" + aliceId);
             check(state.statusCode() == 200, "a joined player should retrieve synchronized state");
             check(Json.parseObject(state.body()).get("phase").equals("READING"), "full lobby should enter reading phase");
+            check(((Number) Json.parseObject(state.body()).get("phaseRemainingMillis")).longValue() == 20_000,
+                    "reading countdown should start after every story has been generated");
             check(!String.valueOf(Json.parseObject(state.body()).get("story")).isBlank(),
                     "private story should be available once the game has started");
             check(get(client, base + "/api/state?playerId=unknown").statusCode() == 404,
@@ -51,11 +58,17 @@ final class GameServerTest {
 
     private static final class TrackingStoryService implements StoryService {
         private final List<CreateStoryCall> createStoryCalls = new ArrayList<>();
+        private final MutableClock clock;
+
+        private TrackingStoryService(MutableClock clock) {
+            this.clock = clock;
+        }
 
         @Override
-        public synchronized String createStory(String theme, String playerName, int version, int playerCount) {
-            createStoryCalls.add(new CreateStoryCall(theme, playerName, version, playerCount));
-            return "Story v" + version + " for " + playerName;
+        public synchronized String createStory(String theme, String storyContext, int version, int playerCount) {
+            createStoryCalls.add(new CreateStoryCall(theme, storyContext, version, playerCount));
+            clock.advanceMillis(15_000);
+            return "Story v" + version;
         }
 
         @Override
@@ -72,7 +85,7 @@ final class GameServerTest {
             return List.copyOf(createStoryCalls);
         }
 
-        private record CreateStoryCall(String theme, String playerName, int version, int playerCount) {
+        private record CreateStoryCall(String theme, String storyContext, int version, int playerCount) {
         }
     }
 

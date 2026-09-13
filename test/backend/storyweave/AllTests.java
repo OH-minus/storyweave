@@ -8,6 +8,7 @@ public final class AllTests {
         JsonTest.run();
         GameEngineTest.run();
         ServerLoggerTest.run();
+        RemoteStoryServiceTest.run();
         GameServerTest.run();
         System.out.println("All Storyweave tests passed.");
     }

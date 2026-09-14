@@ -30,8 +30,8 @@ public final class Main {
 
         String theme = requiredInput(options, "theme", "Story theme: ", false);
         int port = integerOption(options, "port", 8080);
-        int playerCount = integerOption(options, "players", 2);
-        int readSeconds = integerOption(options, "read-seconds", 45);
+        int playerCount = requiredIntegerOption(options, "players", "Player count: ");
+        int readSeconds = integerOption(options, "read-seconds", 60);
         int playerSeconds = integerOption(options, "player-seconds", 90);
         int turnSeconds = integerOption(options, "turn-seconds", 30);
         GameEngine game = new GameEngine(playerCount, readSeconds, playerSeconds, turnSeconds);
@@ -90,6 +90,14 @@ public final class Main {
     private static int integerOption(Map<String, String> options, String key, int defaultValue) {
         try {
             return Integer.parseInt(options.getOrDefault(key, Integer.toString(defaultValue)));
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("--" + key + " must be an integer", exception);
+        }
+    }
+
+    private static int requiredIntegerOption(Map<String, String> options, String key, String prompt) {
+        try {
+            return Integer.parseInt(requiredInput(options, key, prompt, false));
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("--" + key + " must be an integer", exception);
         }

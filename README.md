@@ -83,7 +83,7 @@ at `choices[0].message.content`.
 | Option | Default | Purpose |
 | --- | ---: | --- |
 | `--port` | 8080 | HTTP server port; use `0` to choose an available port |
-| `--players` | 2 | Required players (2-12) |
+| `--players` | (required) | Required players (2-12) |
 | `--read-seconds` | 45 | Private-story reading period |
 | `--player-seconds` | 90 | Total clock available to each player |
 | `--turn-seconds` | 30 | Maximum duration of one turn |

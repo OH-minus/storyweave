@@ -22,7 +22,7 @@ public final class GameEngine {
     public record Entry(String playerId, String token) {
     }
 
-    public record JoinResult(String playerId, String story, int readSeconds) {
+    public record JoinResult(String playerId, String connectionId, String story, int readSeconds) {
     }
 
     public record Score(String playerId, String name, int score, int rank) {
@@ -70,16 +70,43 @@ public final class GameEngine {
 
     public synchronized JoinResult join(String name, String story) {
         processDeadlines();
+        validatePlayerName(name);
+        Player existingPlayer = players.stream()
+                .filter(player -> player.name.equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+        if (existingPlayer != null) {
+            existingPlayer.quit = false;
+            existingPlayer.connectionId = UUID.randomUUID().toString();
+            return new JoinResult(existingPlayer.id, existingPlayer.connectionId, existingPlayer.story,
+                    Math.toIntExact(readDurationMillis / 1_000));
+        }
         if (phase != Phase.WAITING || players.size() >= expectedPlayers) {
             throw new GameException(409, "This game is no longer accepting players");
         }
-        validatePlayerName(name);
-        if (players.stream().anyMatch(player -> player.name.equalsIgnoreCase(name))) {
-            throw new GameException(409, "That player name is already in use");
-        }
         Player player = new Player(UUID.randomUUID().toString(), name, Objects.requireNonNull(story), playerDurationMillis);
         players.add(player);
-        return new JoinResult(player.id, player.story, Math.toIntExact(readDurationMillis / 1_000));
+        return new JoinResult(player.id, player.connectionId, player.story,
+                Math.toIntExact(readDurationMillis / 1_000));
+    }
+
+    public synchronized void quit(String playerId, String connectionId) {
+        processDeadlines();
+        Player player = findPlayer(playerId);
+        if (!player.connectionId.equals(connectionId)) {
+            return;
+        }
+        if (player.quit) {
+            return;
+        }
+        boolean currentTurn = phase == Phase.PLAYING && players.get(currentPlayerIndex) == player;
+        if (currentTurn) {
+            debitCurrentPlayer(now());
+        }
+        player.quit = true;
+        if (currentTurn) {
+            advanceTurn();
+        }
     }
 
     public synchronized void submit(String playerId, String token) {
@@ -115,7 +142,8 @@ public final class GameEngine {
                     "id", player.id,
                     "name", player.name,
                     "remainingMillis", remaining,
-                    "active", remaining > 0
+                    "active", remaining > 0 && !player.quit,
+                    "quit", player.quit
             ));
         }
         long phaseRemaining = phase == Phase.READING ? Math.max(0, phaseDeadline - currentTime) : 0;
@@ -221,7 +249,12 @@ public final class GameEngine {
     private void beginPlaying() {
         phase = Phase.PLAYING;
         currentPlayerIndex = random.nextInt(players.size());
-        startTurn();
+        Player current = players.get(currentPlayerIndex);
+        if (!current.quit && current.remainingMillis > 0) {
+            startTurn();
+        } else {
+            advanceTurn();
+        }
     }
 
     private void debitCurrentPlayer(long endTime) {
@@ -233,7 +266,8 @@ public final class GameEngine {
         int nextIndex = currentPlayerIndex;
         for (int checked = 0; checked < players.size(); checked++) {
             nextIndex = (nextIndex + 1) % players.size();
-            if (players.get(nextIndex).remainingMillis > 0) {
+            Player next = players.get(nextIndex);
+            if (!next.quit && next.remainingMillis > 0) {
                 currentPlayerIndex = nextIndex;
                 startTurn();
                 return;
@@ -283,12 +317,15 @@ public final class GameEngine {
     private static final class Player {
         private final String id;
         private final String name;
+        private String connectionId;
         private String story;
         private long remainingMillis;
+        private boolean quit;
 
         private Player(String id, String name, String story, long remainingMillis) {
             this.id = id;
             this.name = name;
+            connectionId = UUID.randomUUID().toString();
             this.story = story;
             this.remainingMillis = remainingMillis;
         }

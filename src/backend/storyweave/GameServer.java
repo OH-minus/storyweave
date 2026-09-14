@@ -43,6 +43,7 @@ public final class GameServer implements AutoCloseable {
         server.createContext("/api/join", this::handleJoin);
         server.createContext("/api/state", this::handleState);
         server.createContext("/api/submit", this::handleSubmit);
+        server.createContext("/api/quit", this::handleQuit);
         server.createContext("/", this::handleStaticFile);
     }
 
@@ -115,6 +116,7 @@ public final class GameServer implements AutoCloseable {
             String story = String.valueOf(game.snapshot(joined.playerId()).get("story"));
             sendJson(exchange, 201, Map.of(
                     "playerId", joined.playerId(),
+                    "connectionId", joined.connectionId(),
                     "story", story,
                     "readSeconds", joined.readSeconds()
             ));
@@ -174,6 +176,21 @@ public final class GameServer implements AutoCloseable {
             Map<String, Object> body = readJson(exchange);
             game.submit(string(body, "playerId"), string(body, "token"));
             sendJson(exchange, 200, Map.of("accepted", true));
+        } catch (GameEngine.GameException exception) {
+            sendError(exchange, exception.statusCode(), exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            sendError(exchange, 400, exception.getMessage());
+        }
+    }
+
+    private void handleQuit(HttpExchange exchange) throws IOException {
+        if (!requireMethod(exchange, "POST")) {
+            return;
+        }
+        try {
+            Map<String, Object> body = readJson(exchange);
+            game.quit(string(body, "playerId"), string(body, "connectionId"));
+            sendJson(exchange, 200, Map.of("status", "ok"));
         } catch (GameEngine.GameException exception) {
             sendError(exchange, exception.statusCode(), exception.getMessage());
         } catch (IllegalArgumentException exception) {

@@ -278,6 +278,14 @@ button:disabled {
     background: rgba(22, 125, 120, 0.09);
 }
 
+.player-row.quit {
+    opacity: 0.55;
+}
+
+.player-row.quit .player-avatar {
+    background: var(--muted);
+}
+
 .player-avatar {
     flex: 0 0 2.25rem;
     width: 2.25rem;

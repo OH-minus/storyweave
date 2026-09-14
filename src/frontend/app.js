@@ -27,8 +27,10 @@ const elements = {
 
 let apiBase = window.location.origin;
 let playerId = "";
+let connectionId = "";
 let latestState = null;
 let pollTimer = null;
+const savedSessionKey = "storyweave.playerSession";
 
 elements.serverAddress.value = window.location.origin.startsWith("http") ? window.location.origin : "http://localhost:8080";
 
@@ -45,6 +47,8 @@ elements.sidebarToggle.addEventListener("click", () => {
     elements.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
     elements.sidebarToggle.setAttribute("aria-label", collapsed ? "Expand player list" : "Collapse player list");
 });
+window.addEventListener("pagehide", notifyQuit);
+restoreSession();
 
 async function connect(event) {
     event.preventDefault();
@@ -62,6 +66,10 @@ async function connect(event) {
 
     elements.connectButton.disabled = true;
     elements.connectStatus.textContent = "Finding the story room…";
+    await joinGame(name, true);
+}
+
+async function joinGame(name, showAlert) {
     try {
         await request("/api/health");
         const joined = await request("/api/join", {
@@ -70,6 +78,8 @@ async function connect(event) {
             body: JSON.stringify({name})
         });
         playerId = joined.playerId;
+        connectionId = joined.connectionId;
+        saveSession(name);
         elements.referenceStory.textContent = joined.story;
         elements.connectView.classList.add("hidden");
         elements.gameView.classList.remove("hidden");
@@ -77,8 +87,51 @@ async function connect(event) {
         pollTimer = window.setInterval(pollState, 500);
     } catch (error) {
         elements.connectStatus.textContent = error.message;
-        window.alert(`Could not connect to the server: ${error.message}`);
+        if (showAlert) {
+            window.alert(`Could not connect to the server: ${error.message}`);
+        }
         elements.connectButton.disabled = false;
+    }
+}
+
+function saveSession(name) {
+    try {
+        window.localStorage.setItem(savedSessionKey, JSON.stringify({apiBase, name}));
+    } catch (error) {
+        // Rejoining by name still works when browser storage is unavailable.
+    }
+}
+
+async function restoreSession() {
+    let session;
+    try {
+        session = JSON.parse(window.localStorage.getItem(savedSessionKey));
+    } catch (error) {
+        return;
+    }
+    if (!session || typeof session.name !== "string" || typeof session.apiBase !== "string") {
+        return;
+    }
+    try {
+        apiBase = normalizeServerAddress(session.apiBase);
+    } catch (error) {
+        return;
+    }
+    elements.serverAddress.value = apiBase;
+    elements.playerName.value = session.name;
+    elements.connectButton.disabled = true;
+    elements.connectStatus.textContent = "Rejoining the story room…";
+    await joinGame(session.name, false);
+}
+
+function notifyQuit() {
+    if (!playerId || !connectionId) {
+        return;
+    }
+    const url = `${apiBase}/api/quit`;
+    const body = new Blob([JSON.stringify({playerId, connectionId})], {type: "application/json"});
+    if (!window.navigator.sendBeacon(url, body)) {
+        fetch(url, {method: "POST", body, keepalive: true}).catch(() => {});
     }
 }
 
@@ -150,7 +203,7 @@ function renderState(state) {
 function renderPlayers(state) {
     elements.playerList.replaceChildren(...state.players.map(player => {
         const row = document.createElement("div");
-        row.className = `player-row${player.id === state.currentPlayerId ? " current" : ""}`;
+        row.className = `player-row${player.id === state.currentPlayerId ? " current" : ""}${player.quit ? " quit" : ""}`;
         const avatar = document.createElement("span");
         avatar.className = "player-avatar";
         avatar.textContent = player.name.slice(0, 2).toUpperCase();
@@ -161,7 +214,9 @@ function renderPlayers(state) {
         name.textContent = player.name + (player.id === playerId ? " (you)" : "");
         const time = document.createElement("span");
         time.className = "player-time";
-        time.textContent = player.active ? `${formatTime(player.remainingMillis)} remaining` : "Time expired";
+        time.textContent = player.quit
+            ? "Quit"
+            : player.active ? `${formatTime(player.remainingMillis)} remaining` : "Time expired";
         info.append(name, time);
         row.append(avatar, info);
         return row;

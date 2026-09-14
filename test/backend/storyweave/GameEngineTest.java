@@ -7,6 +7,7 @@ import java.util.Random;
 final class GameEngineTest {
     static void run() {
         validatesNamesAndTokens();
+        rejoinsPlayersAndSkipsQuitTurns();
         startsReadingAfterStoriesAreAssigned();
         runsTurnsAndBuildsStory();
         expiresTimersAndRanksScores();
@@ -16,8 +17,6 @@ final class GameEngineTest {
         GameEngine game = new GameEngine(2, 10, 30, 5);
         expectGameError(400, () -> game.join("has space", "Story"));
         expectGameError(400, () -> game.join("Åsa", "Story"));
-        game.join("ALICE", "Story A");
-        expectGameError(409, () -> game.join("alice", "Story B"));
 
         check(GameEngine.isValidToken("hello"), "a word should be valid");
         check(GameEngine.isValidToken("isn't"), "an apostrophized word should be valid");
@@ -25,6 +24,46 @@ final class GameEngineTest {
         check(!GameEngine.isValidToken("two words"), "spaces should be rejected");
         check(!GameEngine.isValidToken("!!"), "multiple punctuation marks should be rejected");
         check(!GameEngine.isValidToken("123"), "numbers should not be accepted as words");
+    }
+
+    private static void rejoinsPlayersAndSkipsQuitTurns() {
+        GameEngine game = new GameEngine(2, 0, 30, 5, new MutableClock(1_000), new Random(0));
+        GameEngine.JoinResult alice = game.join("Alice", "Alice reference");
+        GameEngine.JoinResult rejoinedAlice = game.join("alice", "replacement story");
+        check(rejoinedAlice.playerId().equals(alice.playerId()),
+                "rejoining with the same name should restore the existing player identity");
+        check(rejoinedAlice.story().equals("Alice reference"),
+                "rejoining should preserve the player's private story");
+
+        GameEngine.JoinResult bob = game.join("Bob", "Bob reference");
+        game.assignStories(Map.of(alice.playerId(), "Alice reference", bob.playerId(), "Bob reference"));
+        String current = String.valueOf(game.snapshot(alice.playerId()).get("currentPlayerId"));
+        String currentConnectionId = current.equals(alice.playerId())
+                ? rejoinedAlice.connectionId()
+                : bob.connectionId();
+        game.quit(current, currentConnectionId);
+
+        Map<String, Object> state = game.snapshot(alice.playerId());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> players = (List<Map<String, Object>>) state.get("players");
+        Map<String, Object> quitter = players.stream()
+                .filter(player -> player.get("id").equals(current))
+                .findFirst()
+                .orElseThrow();
+        check(quitter.get("quit").equals(true), "a player who exits should be marked as quit");
+        check(!state.get("currentPlayerId").equals(current), "a quit player's current turn should be skipped");
+
+        String quitterName = String.valueOf(quitter.get("name"));
+        GameEngine.JoinResult restored = game.join(quitterName, "ignored");
+        check(restored.playerId().equals(current), "a quit player should reclaim the same session when rejoining");
+        game.quit(current, currentConnectionId);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> restoredPlayers =
+                (List<Map<String, Object>>) game.snapshot(alice.playerId()).get("players");
+        check(restoredPlayers.stream()
+                        .filter(player -> player.get("id").equals(current))
+                        .noneMatch(player -> player.get("quit").equals(true)),
+                "a rejoined player should no longer be marked as quit");
     }
 
     private static void startsReadingAfterStoriesAreAssigned() {

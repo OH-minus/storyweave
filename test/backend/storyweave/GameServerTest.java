@@ -29,7 +29,10 @@ final class GameServerTest {
             HttpResponse<String> aliceJoin = post(client, base + "/api/join", Map.of("name", "Alice"));
             check(storyService.createStoryCalls().isEmpty(), "stories should not be generated before lobby is full");
             HttpResponse<String> duplicateJoin = post(client, base + "/api/join", Map.of("name", "Alice"));
-            check(duplicateJoin.statusCode() == 409, "duplicate names should be rejected");
+            check(duplicateJoin.statusCode() == 201, "the same name should rejoin successfully");
+            check(Json.parseObject(duplicateJoin.body()).get("playerId")
+                            .equals(Json.parseObject(aliceJoin.body()).get("playerId")),
+                    "rejoining should return the original player identity");
             check(storyService.createStoryCalls().isEmpty(), "duplicate joins must not call story generation");
             HttpResponse<String> bobJoin = post(client, base + "/api/join", Map.of("name", "Bob"));
             check(aliceJoin.statusCode() == 201 && bobJoin.statusCode() == 201, "two players should join");
@@ -44,6 +47,7 @@ final class GameServerTest {
             check(calls.get(1).storyContext().equals("Variation 1:\nStory v0"),
                     "later stories should receive previously generated variations as context");
             String aliceId = String.valueOf(Json.parseObject(aliceJoin.body()).get("playerId"));
+            String aliceConnectionId = String.valueOf(Json.parseObject(duplicateJoin.body()).get("connectionId"));
             HttpResponse<String> state = get(client, base + "/api/state?playerId=" + aliceId);
             check(state.statusCode() == 200, "a joined player should retrieve synchronized state");
             check(Json.parseObject(state.body()).get("phase").equals("READING"), "full lobby should enter reading phase");
@@ -51,6 +55,30 @@ final class GameServerTest {
                     "reading countdown should start after every story has been generated");
             check(!String.valueOf(Json.parseObject(state.body()).get("story")).isBlank(),
                     "private story should be available once the game has started");
+            HttpResponse<String> quit = post(client, base + "/api/quit",
+                    Map.of("playerId", aliceId, "connectionId", aliceConnectionId));
+            check(quit.statusCode() == 200, "a player should be able to quit");
+            String bobId = String.valueOf(Json.parseObject(bobJoin.body()).get("playerId"));
+            Map<String, Object> afterQuit = Json.parseObject(
+                    get(client, base + "/api/state?playerId=" + bobId).body());
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> players = (List<Map<String, Object>>) afterQuit.get("players");
+            check(players.stream()
+                            .filter(player -> player.get("id").equals(aliceId))
+                            .anyMatch(player -> player.get("quit").equals(true)),
+                    "other players should see that Alice quit");
+            HttpResponse<String> aliceRejoin = post(client, base + "/api/join", Map.of("name", "Alice"));
+            check(Json.parseObject(aliceRejoin.body()).get("playerId").equals(aliceId),
+                    "Alice should reclaim her existing session");
+            post(client, base + "/api/quit", Map.of("playerId", aliceId, "connectionId", aliceConnectionId));
+            Map<String, Object> afterStaleQuit = Json.parseObject(
+                    get(client, base + "/api/state?playerId=" + bobId).body());
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rejoinedPlayers = (List<Map<String, Object>>) afterStaleQuit.get("players");
+            check(rejoinedPlayers.stream()
+                            .filter(player -> player.get("id").equals(aliceId))
+                            .noneMatch(player -> player.get("quit").equals(true)),
+                    "a delayed exit notification from the old page must not quit the rejoined session");
             check(get(client, base + "/api/state?playerId=unknown").statusCode() == 404,
                     "unknown players should not read game state");
         }

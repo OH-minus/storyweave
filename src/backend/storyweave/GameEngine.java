@@ -174,26 +174,42 @@ public final class GameEngine {
         return players.stream().map(player -> new PlayerForScoring(player.id, player.name, player.story)).toList();
     }
 
-    public synchronized void assignStories(Map<String, String> storiesByPlayerId) {
+    public synchronized void assignStories(Map<String, String> storiesByPlayerId, String commonSentence) {
         if (phase != Phase.WAITING || players.size() != expectedPlayers) {
             throw new GameException(409, "Stories can only be assigned after all players join");
         }
         Map<String, String> incoming = new HashMap<>(storiesByPlayerId);
+        String opening = Objects.requireNonNull(commonSentence).strip();
+        if (opening.isEmpty()) {
+            throw new GameException(400, "The common opening sentence is missing");
+        }
         for (Player player : players) {
-            String story = incoming.remove(player.id);
+            String story = incoming.get(player.id);
             if (story == null || story.isBlank()) {
                 throw new GameException(400, "Missing story for player " + player.name);
             }
-            player.story = story;
+            if (!hasCommonOpening(story, opening)) {
+                throw new GameException(400, "Private stories do not share the same opening sentence");
+            }
+        }
+        for (Player player : players) {
+            player.story = incoming.remove(player.id);
         }
         if (!incoming.isEmpty()) {
             throw new GameException(400, "Received stories for unknown players");
         }
+        sharedStory.append(opening);
         phase = Phase.READING;
         phaseDeadline = now() + readDurationMillis;
         if (readDurationMillis == 0) {
             beginPlaying();
         }
+    }
+
+    private static boolean hasCommonOpening(String story, String opening) {
+        String strippedStory = story.strip();
+        return strippedStory.equals(opening)
+                || strippedStory.startsWith(opening) && Character.isWhitespace(strippedStory.charAt(opening.length()));
     }
 
     public synchronized String sharedStory() {

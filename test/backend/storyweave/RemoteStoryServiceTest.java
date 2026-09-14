@@ -68,6 +68,12 @@ final class RemoteStoryServiceTest {
             check(prompt.contains("Variation number: 2 of 3"),
                     "story prompt should contain a one-based variation number and player count");
             check(prompt.contains(previousStory), "story prompt should contain previously generated story context");
+            check(prompt.contains("first sentence") && prompt.contains("identical"),
+                    "story prompt should require an identical common opening sentence");
+            check(prompt.contains("main character") && prompt.contains("setting") && prompt.contains("background"),
+                    "story prompt should define what the common sentence introduces");
+            check(prompt.contains("follow-up"),
+                    "story prompt should require distinct follow-ups after the common sentence");
 
             check(service.scoreSimilarity("shared", "reference") == 73, "integer score should be parsed");
 

@@ -10,9 +10,11 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.text.BreakIterator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -140,20 +142,36 @@ public final class GameServer implements AutoCloseable {
             List<GameEngine.PlayerForScoring> players = game.playersForScoring();
             Map<String, String> storiesByPlayerId = new HashMap<>();
             StringBuilder storyContext = new StringBuilder();
+            String commonSentence = null;
             for (int version = 0; version < players.size(); version++) {
                 GameEngine.PlayerForScoring player = players.get(version);
                 String story = storyService.createStory(theme, storyContext.toString(), version, expectedPlayers);
+                if (commonSentence == null) {
+                    commonSentence = firstSentence(story);
+                }
                 storiesByPlayerId.put(player.id(), story);
                 if (!storyContext.isEmpty()) {
                     storyContext.append("\n\n");
                 }
                 storyContext.append("Variation ").append(version + 1).append(":\n").append(story);
             }
-            game.assignStories(storiesByPlayerId);
+            game.assignStories(storiesByPlayerId, commonSentence);
         } catch (Exception exception) {
             storiesAssigned.set(false);
             throw exception;
         }
+    }
+
+    private static String firstSentence(String story) {
+        String generatedStory = story == null ? "" : story.strip();
+        BreakIterator sentences = BreakIterator.getSentenceInstance(Locale.ROOT);
+        sentences.setText(generatedStory);
+        sentences.first();
+        int end = sentences.next();
+        if (end == BreakIterator.DONE || end >= generatedStory.length()) {
+            throw new IllegalArgumentException("Generated story must contain a common opening sentence and a follow-up");
+        }
+        return generatedStory.substring(0, end).strip();
     }
 
     private void handleState(HttpExchange exchange) throws IOException {

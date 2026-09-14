@@ -44,7 +44,8 @@ final class GameServerTest {
                     "each generated story should use expected player count");
             check(calls.get(0).storyContext().isEmpty(),
                     "the first story should be generated without prior-story context");
-            check(calls.get(1).storyContext().equals("Variation 1:\nStory v0"),
+            check(calls.get(1).storyContext().equals(
+                            "Variation 1:\nMira entered the moonlit archive. Story v0"),
                     "later stories should receive previously generated variations as context");
             String aliceId = String.valueOf(Json.parseObject(aliceJoin.body()).get("playerId"));
             String aliceConnectionId = String.valueOf(Json.parseObject(duplicateJoin.body()).get("connectionId"));
@@ -55,6 +56,8 @@ final class GameServerTest {
                     "reading countdown should start after every story has been generated");
             check(!String.valueOf(Json.parseObject(state.body()).get("story")).isBlank(),
                     "private story should be available once the game has started");
+            check(Json.parseObject(state.body()).get("sharedStory").equals("Mira entered the moonlit archive."),
+                    "the common opening sentence should be shown during reading");
             HttpResponse<String> quit = post(client, base + "/api/quit",
                     Map.of("playerId", aliceId, "connectionId", aliceConnectionId));
             check(quit.statusCode() == 200, "a player should be able to quit");
@@ -96,7 +99,7 @@ final class GameServerTest {
         public synchronized String createStory(String theme, String storyContext, int version, int playerCount) {
             createStoryCalls.add(new CreateStoryCall(theme, storyContext, version, playerCount));
             clock.advanceMillis(15_000);
-            return "Story v" + version;
+            return "Mira entered the moonlit archive. Story v" + version;
         }
 
         @Override

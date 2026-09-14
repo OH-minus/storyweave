@@ -44,6 +44,8 @@ public final class GameServer implements AutoCloseable {
         server.createContext("/api/health", this::handleHealth);
         server.createContext("/api/join", this::handleJoin);
         server.createContext("/api/state", this::handleState);
+        server.createContext("/api/ready", this::handleReady);
+        server.createContext("/api/rename", this::handleRename);
         server.createContext("/api/submit", this::handleSubmit);
         server.createContext("/api/quit", this::handleQuit);
         server.createContext("/", this::handleStaticFile);
@@ -114,7 +116,6 @@ public final class GameServer implements AutoCloseable {
             String name = string(body, "name");
             GameEngine.validatePlayerName(name);
             GameEngine.JoinResult joined = game.join(name, "");
-            assignStoriesWhenReady();
             String story = String.valueOf(game.snapshot(joined.playerId()).get("story"));
             sendJson(exchange, 201, Map.of(
                     "playerId", joined.playerId(),
@@ -128,6 +129,48 @@ public final class GameServer implements AutoCloseable {
             sendError(exchange, 400, exception.getMessage());
         } catch (Exception exception) {
             sendError(exchange, 502, "Could not generate a story: " + exception.getMessage());
+        }
+    }
+
+    private void handleReady(HttpExchange exchange) throws IOException {
+        if (!requireMethod(exchange, "POST")) {
+            return;
+        }
+        try {
+            Map<String, Object> body = readJson(exchange);
+            String playerId = string(body, "playerId");
+            String connectionId = string(body, "connectionId");
+            boolean allReady = game.ready(playerId, connectionId);
+            if (allReady) {
+                try {
+                    assignStoriesWhenReady();
+                } catch (Exception exception) {
+                    game.cancelReady(playerId, connectionId);
+                    throw exception;
+                }
+            }
+            sendJson(exchange, 200, Map.of("status", "ok"));
+        } catch (GameEngine.GameException exception) {
+            sendError(exchange, exception.statusCode(), exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            sendError(exchange, 400, exception.getMessage());
+        } catch (Exception exception) {
+            sendError(exchange, 502, "Could not generate stories: " + exception.getMessage());
+        }
+    }
+
+    private void handleRename(HttpExchange exchange) throws IOException {
+        if (!requireMethod(exchange, "POST")) {
+            return;
+        }
+        try {
+            Map<String, Object> body = readJson(exchange);
+            game.rename(string(body, "playerId"), string(body, "connectionId"), string(body, "name"));
+            sendJson(exchange, 200, Map.of("status", "ok"));
+        } catch (GameEngine.GameException exception) {
+            sendError(exchange, exception.statusCode(), exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            sendError(exchange, 400, exception.getMessage());
         }
     }
 

@@ -15,6 +15,13 @@ const elements = {
     instruction: document.querySelector("#instruction"),
     timerLabel: document.querySelector("#timerLabel"),
     headerTimer: document.querySelector("#headerTimer"),
+    preparationPanel: document.querySelector("#preparationPanel"),
+    readyProgress: document.querySelector("#readyProgress"),
+    renameForm: document.querySelector("#renameForm"),
+    preparationName: document.querySelector("#preparationName"),
+    renameButton: document.querySelector("#renameButton"),
+    readyButton: document.querySelector("#readyButton"),
+    preparationStatus: document.querySelector("#preparationStatus"),
     referencePanel: document.querySelector("#referencePanel"),
     referenceStory: document.querySelector("#referenceStory"),
     storyText: document.querySelector("#storyText"),
@@ -35,6 +42,8 @@ const savedSessionKey = "storyweave.playerSession";
 elements.serverAddress.value = window.location.origin.startsWith("http") ? window.location.origin : "http://localhost:8080";
 
 elements.connectForm.addEventListener("submit", connect);
+elements.renameForm.addEventListener("submit", renamePlayer);
+elements.readyButton.addEventListener("click", becomeReady);
 elements.submitButton.addEventListener("click", submitToken);
 elements.tokenInput.addEventListener("input", updateComposer);
 elements.tokenInput.addEventListener("keydown", event => {
@@ -80,6 +89,7 @@ async function joinGame(name, showAlert) {
         playerId = joined.playerId;
         connectionId = joined.connectionId;
         saveSession(name);
+        elements.preparationName.value = name;
         elements.referenceStory.textContent = joined.story;
         elements.connectView.classList.add("hidden");
         elements.gameView.classList.remove("hidden");
@@ -166,14 +176,25 @@ function renderState(state) {
     renderStory(state.sharedStory);
     elements.referenceStory.textContent = state.story;
     const myTurn = state.phase === "PLAYING" && state.currentPlayerId === playerId;
+    const preGame = state.phase === "WAITING" || state.phase === "PREPARATION";
     elements.tokenInput.disabled = !myTurn;
-    elements.referencePanel.classList.toggle("hidden", state.phase === "WAITING");
+    elements.preparationPanel.classList.toggle("hidden", !preGame);
+    elements.referencePanel.classList.toggle("hidden", preGame);
+    renderPreparation(state, preGame);
 
     if (state.phase === "WAITING") {
         elements.instruction.textContent = `Waiting for ${state.expectedPlayers - state.players.length} more writer${state.expectedPlayers - state.players.length === 1 ? "" : "s"}`;
         elements.timerLabel.textContent = "Writers joined";
         elements.headerTimer.textContent = `${state.players.length}/${state.expectedPlayers}`;
         elements.turnBadge.textContent = "Lobby";
+    } else if (state.phase === "PREPARATION") {
+        const readyCount = state.players.filter(player => player.ready).length;
+        elements.instruction.textContent = readyCount === state.expectedPlayers
+            ? "Generating every private story…"
+            : "Change your name if needed, then get ready";
+        elements.timerLabel.textContent = "Writers ready";
+        elements.headerTimer.textContent = `${readyCount}/${state.expectedPlayers}`;
+        elements.turnBadge.textContent = "Prepare";
     } else if (state.phase === "READING") {
         elements.instruction.textContent = "Read your private story and remember its turning points";
         elements.timerLabel.textContent = "Reading time";
@@ -200,6 +221,25 @@ function renderState(state) {
     updateComposer();
 }
 
+function renderPreparation(state, preGame) {
+    if (!preGame) {
+        return;
+    }
+    const me = state.players.find(player => player.id === playerId);
+    const readyCount = state.players.filter(player => player.ready).length;
+    elements.readyProgress.textContent = state.phase === "WAITING"
+        ? `${state.players.length}/${state.expectedPlayers} joined`
+        : `${readyCount}/${state.expectedPlayers} ready`;
+    if (me && document.activeElement !== elements.preparationName) {
+        elements.preparationName.value = me.name;
+    }
+    elements.renameButton.disabled = false;
+    elements.readyButton.disabled = state.phase !== "PREPARATION" || !me || me.ready;
+    elements.readyButton.textContent = state.phase === "WAITING"
+        ? "Waiting for the lobby"
+        : me?.ready ? "Ready ✓" : "I'm ready";
+}
+
 function renderPlayers(state) {
     elements.playerList.replaceChildren(...state.players.map(player => {
         const row = document.createElement("div");
@@ -214,13 +254,59 @@ function renderPlayers(state) {
         name.textContent = player.name + (player.id === playerId ? " (you)" : "");
         const time = document.createElement("span");
         time.className = "player-time";
-        time.textContent = player.quit
+        time.textContent = state.phase === "PREPARATION"
+            ? player.ready ? "Ready" : "Getting ready"
+            : player.quit
             ? "Quit"
             : player.active ? `${formatTime(player.remainingMillis)} remaining` : "Time expired";
         info.append(name, time);
         row.append(avatar, info);
         return row;
     }));
+}
+
+async function renamePlayer(event) {
+    event.preventDefault();
+    const name = elements.preparationName.value;
+    if (!/^[!-~]{1,24}$/.test(name)) {
+        elements.preparationStatus.textContent =
+            "Player names must use 1-24 visible ASCII characters and cannot contain spaces.";
+        return;
+    }
+    elements.renameButton.disabled = true;
+    elements.preparationStatus.textContent = "Changing your name…";
+    try {
+        await request("/api/rename", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({playerId, connectionId, name})
+        });
+        elements.playerName.value = name;
+        saveSession(name);
+        elements.preparationStatus.textContent = "Name changed.";
+        await pollState();
+    } catch (error) {
+        elements.preparationStatus.textContent = error.message;
+    } finally {
+        elements.renameButton.disabled = false;
+    }
+}
+
+async function becomeReady() {
+    elements.readyButton.disabled = true;
+    elements.preparationStatus.textContent = "Getting the story ready…";
+    try {
+        await request("/api/ready", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({playerId, connectionId})
+        });
+        elements.preparationStatus.textContent = "";
+        await pollState();
+    } catch (error) {
+        elements.preparationStatus.textContent = error.message;
+        elements.readyButton.disabled = false;
+    }
 }
 
 function renderStory(story) {

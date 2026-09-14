@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 /** Thread-safe state machine for a complete storytelling game. */
 public final class GameEngine {
     public enum Phase {
-        WAITING, READING, PLAYING, SCORING, FINISHED
+        WAITING, PREPARATION, READING, PLAYING, SCORING, FINISHED
     }
 
     public record Entry(String playerId, String token) {
@@ -86,8 +86,38 @@ public final class GameEngine {
         }
         Player player = new Player(UUID.randomUUID().toString(), name, Objects.requireNonNull(story), playerDurationMillis);
         players.add(player);
+        if (players.size() == expectedPlayers) {
+            phase = Phase.PREPARATION;
+        }
         return new JoinResult(player.id, player.connectionId, player.story,
                 Math.toIntExact(readDurationMillis / 1_000));
+    }
+
+    public synchronized boolean ready(String playerId, String connectionId) {
+        if (phase != Phase.PREPARATION) {
+            throw new GameException(409, "Players can only become ready during preparation");
+        }
+        Player player = findConnectedPlayer(playerId, connectionId);
+        player.ready = true;
+        return players.stream().allMatch(candidate -> candidate.ready);
+    }
+
+    public synchronized void cancelReady(String playerId, String connectionId) {
+        if (phase == Phase.PREPARATION) {
+            findConnectedPlayer(playerId, connectionId).ready = false;
+        }
+    }
+
+    public synchronized void rename(String playerId, String connectionId, String name) {
+        if (phase != Phase.WAITING && phase != Phase.PREPARATION) {
+            throw new GameException(409, "Player names cannot be changed after the game starts");
+        }
+        validatePlayerName(name);
+        Player player = findConnectedPlayer(playerId, connectionId);
+        if (players.stream().anyMatch(candidate -> candidate != player && candidate.name.equalsIgnoreCase(name))) {
+            throw new GameException(409, "That player name is already in use");
+        }
+        player.name = name;
     }
 
     public synchronized void quit(String playerId, String connectionId) {
@@ -143,7 +173,8 @@ public final class GameEngine {
                     "name", player.name,
                     "remainingMillis", remaining,
                     "active", remaining > 0 && !player.quit,
-                    "quit", player.quit
+                    "quit", player.quit,
+                    "ready", player.ready
             ));
         }
         long phaseRemaining = phase == Phase.READING ? Math.max(0, phaseDeadline - currentTime) : 0;
@@ -175,8 +206,9 @@ public final class GameEngine {
     }
 
     public synchronized void assignStories(Map<String, String> storiesByPlayerId, String commonSentence) {
-        if (phase != Phase.WAITING || players.size() != expectedPlayers) {
-            throw new GameException(409, "Stories can only be assigned after all players join");
+        if (phase != Phase.PREPARATION || players.size() != expectedPlayers
+                || players.stream().anyMatch(player -> !player.ready)) {
+            throw new GameException(409, "Stories can only be assigned after all players are ready");
         }
         Map<String, String> incoming = new HashMap<>(storiesByPlayerId);
         String opening = Objects.requireNonNull(commonSentence).strip();
@@ -311,6 +343,14 @@ public final class GameEngine {
                 .orElseThrow(() -> new GameException(404, "Unknown player"));
     }
 
+    private Player findConnectedPlayer(String playerId, String connectionId) {
+        Player player = findPlayer(playerId);
+        if (!player.connectionId.equals(connectionId)) {
+            throw new GameException(409, "This player session is no longer active");
+        }
+        return player;
+    }
+
     private List<Map<String, Object>> scoreViews() {
         if (phase != Phase.FINISHED) {
             return List.of();
@@ -332,11 +372,12 @@ public final class GameEngine {
 
     private static final class Player {
         private final String id;
-        private final String name;
+        private String name;
         private String connectionId;
         private String story;
         private long remainingMillis;
         private boolean quit;
+        private boolean ready;
 
         private Player(String id, String name, String story, long remainingMillis) {
             this.id = id;

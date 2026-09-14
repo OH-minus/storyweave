@@ -163,6 +163,7 @@ input:focus {
 }
 
 .primary-button,
+.secondary-button,
 .submit-button {
     min-height: 3.4rem;
     border: 0;
@@ -174,6 +175,14 @@ input:focus {
     transition: transform 160ms, background 160ms, opacity 160ms;
 }
 
+.secondary-button {
+    min-height: 3.3rem;
+    padding: 0 1rem;
+    border: 1px solid var(--teal);
+    color: var(--teal-dark);
+    background: rgba(255, 255, 255, 0.7);
+}
+
 .primary-button {
     display: flex;
     justify-content: space-between;
@@ -183,9 +192,14 @@ input:focus {
 }
 
 .primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
 .submit-button:hover:not(:disabled) {
     transform: translateY(-1px);
     background: var(--teal-dark);
+}
+
+.secondary-button:hover:not(:disabled) {
+    color: white;
 }
 
 button:disabled {
@@ -359,11 +373,35 @@ button:disabled {
 }
 
 .reference-panel,
+.preparation-panel,
 .story-workspace {
     border: 1px solid var(--line);
     border-radius: 1.4rem;
     background: var(--surface);
     box-shadow: 0 12px 40px rgba(30, 55, 56, 0.07);
+}
+
+.preparation-panel {
+    margin-bottom: 1rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.rename-form {
+    margin-top: 0.65rem;
+}
+
+.rename-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.65rem;
+}
+
+.ready-button {
+    width: 100%;
+}
+
+.preparation-panel .status-message {
+    margin-top: 0.65rem;
 }
 
 .reference-panel {
@@ -528,6 +566,10 @@ button:disabled {
     .reference-panel {
         max-height: 11rem;
         overflow: auto;
+    }
+
+    .rename-controls {
+        grid-template-columns: 1fr;
     }
 
     .privacy-pill,

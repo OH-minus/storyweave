@@ -7,6 +7,7 @@ import java.util.Random;
 final class GameEngineTest {
     static void run() {
         validatesNamesAndTokens();
+        preparesPlayersAndAllowsPreGameRenames();
         rejoinsPlayersAndSkipsQuitTurns();
         startsReadingAfterStoriesAreAssigned();
         runsTurnsAndBuildsStory();
@@ -26,6 +27,40 @@ final class GameEngineTest {
         check(!GameEngine.isValidToken("123"), "numbers should not be accepted as words");
     }
 
+    private static void preparesPlayersAndAllowsPreGameRenames() {
+        GameEngine game = new GameEngine(2, 10, 30, 5);
+        GameEngine.JoinResult alice = game.join("Alice", "");
+        check(game.phase() == GameEngine.Phase.WAITING, "an incomplete lobby should keep waiting");
+        GameEngine.JoinResult bob = game.join("Bob", "");
+        check(game.phase() == GameEngine.Phase.PREPARATION, "a full lobby should enter preparation");
+
+        game.rename(alice.playerId(), alice.connectionId(), "Alicia");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> renamedPlayers =
+                (List<Map<String, Object>>) game.snapshot(alice.playerId()).get("players");
+        check(renamedPlayers.stream().anyMatch(player -> player.get("name").equals("Alicia")),
+                "players should be able to rename themselves before the game starts");
+        expectGameError(409, () -> game.rename(bob.playerId(), bob.connectionId(), "ALICIA"));
+        expectGameError(409, () -> game.ready(alice.playerId(), "stale-connection"));
+
+        check(!game.ready(alice.playerId(), alice.connectionId()),
+                "one ready player should not start a two-player game");
+        expectGameError(409, () -> game.assignStories(Map.of(
+                alice.playerId(), "The gate opened. Story A",
+                bob.playerId(), "The gate opened. Story B"), "The gate opened."));
+        check(game.ready(bob.playerId(), bob.connectionId()), "the final ready player should allow the game to start");
+        game.cancelReady(bob.playerId(), bob.connectionId());
+        expectGameError(409, () -> game.assignStories(Map.of(
+                alice.playerId(), "The gate opened. Story A",
+                bob.playerId(), "The gate opened. Story B"), "The gate opened."));
+        check(game.ready(bob.playerId(), bob.connectionId()),
+                "a canceled final ready action should be retryable after generation fails");
+        game.assignStories(Map.of(
+                alice.playerId(), "The gate opened. Story A",
+                bob.playerId(), "The gate opened. Story B"), "The gate opened.");
+        expectGameError(409, () -> game.rename(alice.playerId(), alice.connectionId(), "Alice"));
+    }
+
     private static void rejoinsPlayersAndSkipsQuitTurns() {
         GameEngine game = new GameEngine(2, 0, 30, 5, new MutableClock(1_000), new Random(0));
         GameEngine.JoinResult alice = game.join("Alice", "Alice reference");
@@ -36,6 +71,8 @@ final class GameEngineTest {
                 "rejoining should preserve the player's private story");
 
         GameEngine.JoinResult bob = game.join("Bob", "Bob reference");
+        game.ready(alice.playerId(), rejoinedAlice.connectionId());
+        game.ready(bob.playerId(), bob.connectionId());
         game.assignStories(Map.of(
                 alice.playerId(), "The bell rang. Alice reference",
                 bob.playerId(), "The bell rang. Bob reference"), "The bell rang.");
@@ -75,8 +112,11 @@ final class GameEngineTest {
         GameEngine.JoinResult bob = game.join("Bob", "");
 
         clock.advanceMillis(30_000);
-        check(game.phase() == GameEngine.Phase.WAITING,
+        check(game.phase() == GameEngine.Phase.PREPARATION,
                 "reading should not start while private stories are being generated");
+
+        game.ready(alice.playerId(), alice.connectionId());
+        game.ready(bob.playerId(), bob.connectionId());
 
         expectGameError(400, () -> game.assignStories(Map.of(
                 alice.playerId(), "The city woke. Story A",
@@ -98,6 +138,8 @@ final class GameEngineTest {
         GameEngine game = new GameEngine(2, 0, 20, 5, clock, new Random(4));
         GameEngine.JoinResult alice = game.join("Alice", "Alice reference");
         GameEngine.JoinResult bob = game.join("Bob", "Bob reference");
+        game.ready(alice.playerId(), alice.connectionId());
+        game.ready(bob.playerId(), bob.connectionId());
         game.assignStories(Map.of(
                 alice.playerId(), "A storm covered the harbor. Alice reference",
                 bob.playerId(), "A storm covered the harbor. Bob reference"), "A storm covered the harbor.");
@@ -125,6 +167,8 @@ final class GameEngineTest {
         GameEngine game = new GameEngine(2, 0, 1, 1, clock, new Random(0));
         GameEngine.JoinResult alice = game.join("Alice", "Reference A");
         GameEngine.JoinResult bob = game.join("Bob", "Reference B");
+        game.ready(alice.playerId(), alice.connectionId());
+        game.ready(bob.playerId(), bob.connectionId());
         game.assignStories(Map.of(
                 alice.playerId(), "The lantern dimmed. Reference A",
                 bob.playerId(), "The lantern dimmed. Reference B"), "The lantern dimmed.");

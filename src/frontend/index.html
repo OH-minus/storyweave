@@ -57,6 +57,25 @@
             </div>
         </header>
 
+        <section id="preparationPanel" class="preparation-panel">
+            <div class="panel-title">
+                <span>Before the story begins</span>
+                <span id="readyProgress" class="privacy-pill">Waiting for writers</span>
+            </div>
+            <form id="renameForm" class="rename-form" novalidate>
+                <label for="preparationName">Your player name</label>
+                <div class="rename-controls">
+                    <input id="preparationName" type="text" maxlength="24" autocomplete="nickname"
+                           spellcheck="false" pattern="[!-~]{1,24}" required>
+                    <button id="renameButton" class="secondary-button" type="submit">Change name</button>
+                </div>
+            </form>
+            <button id="readyButton" class="primary-button ready-button" type="button" disabled>
+                <span>Waiting for the lobby</span><span aria-hidden="true">✓</span>
+            </button>
+            <p id="preparationStatus" class="status-message" role="status"></p>
+        </section>
+
         <section id="referencePanel" class="reference-panel">
             <div class="panel-title">
                 <span>Your private story</span>

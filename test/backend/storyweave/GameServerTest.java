@@ -36,6 +36,28 @@ final class GameServerTest {
             check(storyService.createStoryCalls().isEmpty(), "duplicate joins must not call story generation");
             HttpResponse<String> bobJoin = post(client, base + "/api/join", Map.of("name", "Bob"));
             check(aliceJoin.statusCode() == 201 && bobJoin.statusCode() == 201, "two players should join");
+            check(storyService.createStoryCalls().isEmpty(),
+                    "a full lobby should not generate stories before every player is ready");
+            String aliceId = String.valueOf(Json.parseObject(aliceJoin.body()).get("playerId"));
+            String aliceConnectionId = String.valueOf(Json.parseObject(duplicateJoin.body()).get("connectionId"));
+            String bobId = String.valueOf(Json.parseObject(bobJoin.body()).get("playerId"));
+            String bobConnectionId = String.valueOf(Json.parseObject(bobJoin.body()).get("connectionId"));
+            Map<String, Object> preparation = Json.parseObject(
+                    get(client, base + "/api/state?playerId=" + aliceId).body());
+            check(preparation.get("phase").equals("PREPARATION"),
+                    "a full lobby should enter the preparation phase");
+
+            HttpResponse<String> rename = post(client, base + "/api/rename",
+                    Map.of("playerId", aliceId, "connectionId", aliceConnectionId, "name", "Alicia"));
+            check(rename.statusCode() == 200, "a player should be able to rename before the game starts");
+            HttpResponse<String> aliceReady = post(client, base + "/api/ready",
+                    Map.of("playerId", aliceId, "connectionId", aliceConnectionId));
+            check(aliceReady.statusCode() == 200, "a player should be able to become ready");
+            check(storyService.createStoryCalls().isEmpty(),
+                    "one ready player should not generate stories or start the game");
+            HttpResponse<String> bobReady = post(client, base + "/api/ready",
+                    Map.of("playerId", bobId, "connectionId", bobConnectionId));
+            check(bobReady.statusCode() == 200, "the final player should be able to become ready");
             List<TrackingStoryService.CreateStoryCall> calls = storyService.createStoryCalls();
             check(calls.size() == 2, "story generation should run once per accepted player when game starts");
             check(calls.get(0).version() == 0 && calls.get(1).version() == 1,
@@ -47,8 +69,6 @@ final class GameServerTest {
             check(calls.get(1).storyContext().equals(
                             "Variation 1:\nMira entered the moonlit archive. Story v0"),
                     "later stories should receive previously generated variations as context");
-            String aliceId = String.valueOf(Json.parseObject(aliceJoin.body()).get("playerId"));
-            String aliceConnectionId = String.valueOf(Json.parseObject(duplicateJoin.body()).get("connectionId"));
             HttpResponse<String> state = get(client, base + "/api/state?playerId=" + aliceId);
             check(state.statusCode() == 200, "a joined player should retrieve synchronized state");
             check(Json.parseObject(state.body()).get("phase").equals("READING"), "full lobby should enter reading phase");
@@ -61,7 +81,6 @@ final class GameServerTest {
             HttpResponse<String> quit = post(client, base + "/api/quit",
                     Map.of("playerId", aliceId, "connectionId", aliceConnectionId));
             check(quit.statusCode() == 200, "a player should be able to quit");
-            String bobId = String.valueOf(Json.parseObject(bobJoin.body()).get("playerId"));
             Map<String, Object> afterQuit = Json.parseObject(
                     get(client, base + "/api/state?playerId=" + bobId).body());
             @SuppressWarnings("unchecked")
@@ -70,7 +89,7 @@ final class GameServerTest {
                             .filter(player -> player.get("id").equals(aliceId))
                             .anyMatch(player -> player.get("quit").equals(true)),
                     "other players should see that Alice quit");
-            HttpResponse<String> aliceRejoin = post(client, base + "/api/join", Map.of("name", "Alice"));
+            HttpResponse<String> aliceRejoin = post(client, base + "/api/join", Map.of("name", "Alicia"));
             check(Json.parseObject(aliceRejoin.body()).get("playerId").equals(aliceId),
                     "Alice should reclaim her existing session");
             post(client, base + "/api/quit", Map.of("playerId", aliceId, "connectionId", aliceConnectionId));

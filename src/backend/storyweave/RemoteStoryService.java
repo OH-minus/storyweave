@@ -42,7 +42,7 @@ public final class RemoteStoryService implements StoryService {
                 "versionIndex", Integer.toString(version + 1),
                 "playerCount", Integer.toString(playerCount)
         ));
-        return complete(prompt, 2000, false).strip();
+        return complete(prompt, 3000, false).strip();
     }
 
     @Override

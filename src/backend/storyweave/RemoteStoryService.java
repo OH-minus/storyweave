@@ -84,16 +84,20 @@ public final class RemoteStoryService implements StoryService {
         }
         if (integerOutput) {
             payload.put("response_format", Map.of(
-                    "type", "json_schema",
+                    "type", "json_object",
                     "json_schema", Map.of(
                             "name", "score",
                             "strict", true,
                             "schema", Map.of(
-                                    "type", "integer",
-                                    "minimum", 0,
-                                    "maximum", 100
-                            )
-                    )
+                                    "type", "object",
+                                    "properties", Map.of(
+                                            "value", Map.of(
+                                                    "type", "integer",
+                                                    "minimum", 1,
+                                                    "maximum", 100))
+//                                    "required", List.of("value"),
+//                                    "additionalProperties", false
+                            ))
             ));
         }
         ServerLogger.logLlmRequest(endpoint.toString(), model, maxTokens, prompt);
@@ -113,10 +117,44 @@ public final class RemoteStoryService implements StoryService {
             List<?> choices = (List<?>) body.get("choices");
             Map<?, ?> firstChoice = (Map<?, ?>) choices.getFirst();
             Map<?, ?> message = (Map<?, ?>) firstChoice.get("message");
-            return String.valueOf(message.get("content"));
+            if (integerOutput) {
+                return extractStructuredIntegerValue(message.get("content"));
+            } else return String.valueOf(message.get("content"));
         } catch (RuntimeException exception) {
             throw new IOException("LLM response did not contain choices[0].message.content", exception);
         }
+    }
+
+    private static String extractStructuredIntegerValue(Object content) throws IOException {
+        Map<String, Object> json;
+        if (content instanceof String text) {
+            try {
+                json = Json.parseObject(text);
+            } catch (RuntimeException exception) {
+                throw new IOException("LLM did not return a JSON object content", exception);
+            }
+        } else if (content instanceof Map<?, ?> contentMap) {
+            json = new HashMap<>();
+            for (Map.Entry<?, ?> entry : contentMap.entrySet()) {
+                if (entry.getKey() != null) {
+                    json.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+        } else {
+            throw new IOException("LLM did not return a JSON object content");
+        }
+        if (json.size() != 1 || !json.containsKey("value")) {
+            throw new IOException("LLM JSON must contain only integer key 'value'");
+        }
+        Object value = json.get("value");
+        if (!(value instanceof Number number)) {
+            throw new IOException("LLM JSON field 'value' must be an integer");
+        }
+        double numeric = number.doubleValue();
+        if (numeric != Math.rint(numeric)) {
+            throw new IOException("LLM JSON field 'value' must be an integer");
+        }
+        return String.valueOf(number.intValue());
     }
 
     private static String describeHttpError(int statusCode, String responseBody) {

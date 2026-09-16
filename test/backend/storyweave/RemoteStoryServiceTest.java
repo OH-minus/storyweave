@@ -16,21 +16,12 @@ final class RemoteStoryServiceTest {
         String endpoint = requiredOption(options, "url");
         String apiKey = requiredOption(options, "key");
         String model = requiredOption(options, "model");
-        String theme = requiredOption(options, "theme");
-        int playerCount = positiveIntegerOption(options, "players");
 
         RemoteStoryService service = new RemoteStoryService(endpoint, apiKey, model);
-        StringBuilder storyContext = new StringBuilder();
-        for (int version = 0; version < playerCount; version++) {
-            String story = service.createStory(theme, storyContext.toString(), version, playerCount);
-            check(!story.isBlank(), "story " + (version + 1) + " should not be blank");
-            System.out.println("Story " + (version + 1) + ":");
-            System.out.println(story);
-            if (!storyContext.isEmpty()) {
-                storyContext.append("\n\n");
-            }
-            storyContext.append("Variation ").append(version + 1).append(":\n").append(story);
-        }
+        int score = service.scoreSimilarity("A silver train crossed the moonlit bridge.",
+                "A silver train crossed the moonlit bridge.");
+        check(score >= 0 && score <= 100, "score should be an integer in [0, 100]");
+        System.out.println("Structured integer score: " + score);
         System.out.println("LLM call log: " + ServerLogger.llmLogFile().toAbsolutePath());
     }
 
@@ -41,7 +32,9 @@ final class RemoteStoryServiceTest {
             Map<String, Object> payload = Json.parseObject(
                     new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             requestPayload.set(payload);
-            String content = payload.containsKey("response_format") ? "73" : "A clockwork forest woke at dawn.";
+            String content = payload.containsKey("response_format")
+                    ? "{\"value\":73}"
+                    : "A clockwork forest woke at dawn.";
             byte[] response = Json.stringify(Map.of(
                             "choices", List.of(Map.of("message", Map.of("content", content)))))
                     .getBytes(StandardCharsets.UTF_8);
@@ -58,8 +51,8 @@ final class RemoteStoryServiceTest {
             check("A clockwork forest woke at dawn.".equals(story), "generated story should be returned");
 
             Map<String, Object> storyPayload = requestPayload.get();
-            check(((Number) storyPayload.get("max_tokens")).intValue() == 2000,
-                    "story generation should allow 2000 tokens");
+            check(((Number) storyPayload.get("max_tokens")).intValue() == 3000,
+                    "story generation should allow 3000 tokens");
             check(!storyPayload.containsKey("response_format"),
                     "story generation should not request integer output");
             Map<?, ?> storyMessage = (Map<?, ?>) ((List<?>) storyPayload.get("messages")).getFirst();
@@ -82,9 +75,19 @@ final class RemoteStoryServiceTest {
             Map<?, ?> jsonSchema = (Map<?, ?>) responseFormat.get("json_schema");
             check(Boolean.TRUE.equals(jsonSchema.get("strict")), "score schema should be strict");
             Map<?, ?> schema = (Map<?, ?>) jsonSchema.get("schema");
-            check("integer".equals(schema.get("type")), "score output should be restricted to an integer");
-            check(((Number) schema.get("minimum")).intValue() == 0, "score schema should have a minimum of 0");
-            check(((Number) schema.get("maximum")).intValue() == 100, "score schema should have a maximum of 100");
+            check("object".equals(schema.get("type")), "score output should be restricted to a JSON object");
+            Map<?, ?> properties = (Map<?, ?>) schema.get("properties");
+            Map<?, ?> valueProperty = (Map<?, ?>) properties.get("value");
+            check("integer".equals(valueProperty.get("type")),
+                    "score output field 'value' should be restricted to an integer");
+            check(((Number) valueProperty.get("minimum")).intValue() == 1,
+                    "score schema should have a minimum of 1");
+            check(((Number) valueProperty.get("maximum")).intValue() == 100,
+                    "score schema should have a maximum of 100");
+            check(List.of("value").equals(schema.get("required")),
+                    "score schema should require only the 'value' field");
+            check(Boolean.FALSE.equals(schema.get("additionalProperties")),
+                    "score schema should disallow additional fields");
         } finally {
             server.stop(0);
         }
@@ -96,12 +99,11 @@ final class RemoteStoryServiceTest {
             String argument = arguments[index];
             if (!argument.startsWith("--") || index + 1 >= arguments.length) {
                 throw new IllegalArgumentException(
-                        "Usage: RemoteStoryServiceTest --url <url> --key <api-key> --model <model> "
-                                + "--theme <theme> --players <number>");
+                        "Usage: RemoteStoryServiceTest --url <url> --key <api-key> --model <model>");
             }
             options.put(argument.substring(2), arguments[++index]);
         }
-        List<String> supportedOptions = List.of("url", "key", "model", "theme", "players");
+        List<String> supportedOptions = List.of("url", "key", "model");
         options.keySet().stream()
                 .filter(option -> !supportedOptions.contains(option))
                 .findFirst()
@@ -117,18 +119,6 @@ final class RemoteStoryServiceTest {
             throw new IllegalArgumentException("--" + name + " is required");
         }
         return value.strip();
-    }
-
-    private static int positiveIntegerOption(Map<String, String> options, String name) {
-        try {
-            int value = Integer.parseInt(requiredOption(options, name));
-            if (value <= 0) {
-                throw new IllegalArgumentException("--" + name + " must be greater than zero");
-            }
-            return value;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("--" + name + " must be an integer", exception);
-        }
     }
 
     private static void check(boolean condition, String message) throws IOException {

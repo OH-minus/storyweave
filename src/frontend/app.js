@@ -29,7 +29,7 @@ const elements = {
     tokenInput: document.querySelector("#tokenInput"),
     submitButton: document.querySelector("#submitButton"),
     gameStatus: document.querySelector("#gameStatus"),
-    scoreList: document.querySelector("#scoreList")
+    scoreTableBody: document.querySelector("#scoreTableBody")
 };
 
 let apiBase = window.location.origin;
@@ -358,18 +358,31 @@ function showScores(scores) {
     }
     elements.gameView.classList.add("hidden");
     elements.scoreView.classList.remove("hidden");
-    elements.scoreList.replaceChildren(...scores.map(score => {
-        const row = document.createElement("li");
-        row.className = "score-entry";
-        const rank = document.createElement("span");
-        rank.className = "rank";
+    elements.scoreTableBody.replaceChildren(...scores.map(score => {
+        const row = document.createElement("tr");
+        if (score.rank === 1) {
+            row.classList.add("winner");
+        }
+
+        const rank = document.createElement("td");
         rank.textContent = `#${score.rank}`;
-        const name = document.createElement("strong");
+        rank.className = "rank";
+
+        const name = document.createElement("td");
+        name.className = "player-cell";
         name.textContent = score.name + (score.playerId === playerId ? " (you)" : "");
-        const value = document.createElement("span");
-        value.className = "score-value";
-        value.textContent = `${score.score} pts`;
-        row.append(rank, name, value);
+
+        const similarity = document.createElement("td");
+        similarity.textContent = `${score.similarity}`;
+
+        const errorPenalty = document.createElement("td");
+        errorPenalty.textContent = `${score.errorPenalty}`;
+
+        const overall = document.createElement("td");
+        overall.className = "score-value";
+        overall.textContent = `${score.score}`;
+
+        row.append(rank, name, similarity, errorPenalty, overall);
         return row;
     }));
 }

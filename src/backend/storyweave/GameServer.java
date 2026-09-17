@@ -78,26 +78,28 @@ public final class GameServer implements AutoCloseable {
     }
 
     private void calculateScores() {
-        LinkedHashMap<String, Integer> result = new LinkedHashMap<>();
+        LinkedHashMap<String, GameEngine.ScoreBreakdown> result = new LinkedHashMap<>();
         String sharedStory = game.sharedStory();
         for (GameEngine.PlayerForScoring player : game.playersForScoring()) {
             try {
                 int similarity = storyService.scoreSimilarity(sharedStory, player.story());
                 int deduction = storyService.scoreDeduction(sharedStory, game.entriesFor(player.id()));
-                result.put(player.id(), Math.clamp(similarity - deduction, 0, 100));
+                int overall = Math.clamp(similarity - deduction, 0, 100);
+                result.put(player.id(), new GameEngine.ScoreBreakdown(similarity, deduction, overall));
             } catch (Exception exception) {
                 System.err.println("Remote scoring failed for " + player.name() + "; using local scoring: "
                         + exception.getMessage());
                 try {
                     int similarity = fallbackScorer.scoreSimilarity(sharedStory, player.story());
                     int deduction = fallbackScorer.scoreDeduction(sharedStory, game.entriesFor(player.id()));
-                    result.put(player.id(), Math.clamp(similarity - deduction, 0, 100));
+                    int overall = Math.clamp(similarity - deduction, 0, 100);
+                    result.put(player.id(), new GameEngine.ScoreBreakdown(similarity, deduction, overall));
                 } catch (Exception impossible) {
-                    result.put(player.id(), 0);
+                    result.put(player.id(), new GameEngine.ScoreBreakdown(0, 0, 0));
                 }
             }
         }
-        game.finishScoring(result);
+        game.finishScoringBreakdown(result);
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {

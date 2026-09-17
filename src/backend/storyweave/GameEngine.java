@@ -25,7 +25,10 @@ public final class GameEngine {
     public record JoinResult(String playerId, String connectionId, String story, int readSeconds) {
     }
 
-    public record Score(String playerId, String name, int score, int rank) {
+    public record Score(String playerId, String name, int similarity, int deduction, int score, int rank) {
+    }
+
+    public record ScoreBreakdown(int similarity, int deduction, int overall) {
     }
 
     private static final Pattern PLAYER_NAME = Pattern.compile("[!-~]{1,24}");
@@ -253,20 +256,36 @@ public final class GameEngine {
         if (phase != Phase.SCORING || !scores.isEmpty()) {
             return false;
         }
-        scores = List.of(new Score("", "", -1, -1));
+        scores = List.of(new Score("", "", -1, -1, -1, -1));
         return true;
     }
 
     public synchronized void finishScoring(Map<String, Integer> calculatedScores) {
+        LinkedHashMap<String, ScoreBreakdown> breakdowns = new LinkedHashMap<>();
+        calculatedScores.forEach((playerId, score) -> {
+            int overall = Math.clamp(score, 0, 100);
+            breakdowns.put(playerId, new ScoreBreakdown(overall, 0, overall));
+        });
+        finishScoringBreakdown(breakdowns);
+    }
+
+    public synchronized void finishScoringBreakdown(Map<String, ScoreBreakdown> calculatedScores) {
         if (phase != Phase.SCORING) {
             return;
         }
         ArrayList<Score> ranked = new ArrayList<>();
         players.stream()
-                .sorted(Comparator.comparingInt((Player player) -> calculatedScores.getOrDefault(player.id, 0)).reversed()
+                .sorted(Comparator.comparingInt((Player player) ->
+                                calculatedScores.getOrDefault(player.id, new ScoreBreakdown(0, 0, 0)).overall())
+                        .reversed()
                         .thenComparing(player -> player.name))
-                .forEach(player -> ranked.add(new Score(player.id, player.name,
-                        Math.clamp(calculatedScores.getOrDefault(player.id, 0), 0, 100), ranked.size() + 1)));
+                .forEach(player -> {
+                    ScoreBreakdown breakdown = calculatedScores.getOrDefault(player.id, new ScoreBreakdown(0, 0, 0));
+                    int similarity = Math.clamp(breakdown.similarity(), 0, 100);
+                    int deduction = Math.clamp(breakdown.deduction(), 0, 100);
+                    int overall = Math.clamp(breakdown.overall(), 0, 100);
+                    ranked.add(new Score(player.id, player.name, similarity, deduction, overall, ranked.size() + 1));
+                });
         scores = List.copyOf(ranked);
         phase = Phase.FINISHED;
     }
@@ -358,6 +377,8 @@ public final class GameEngine {
         return scores.stream().map(score -> Map.<String, Object>of(
                 "playerId", score.playerId,
                 "name", score.name,
+                "similarity", score.similarity,
+                "errorPenalty", score.deduction,
                 "score", score.score,
                 "rank", score.rank
         )).toList();

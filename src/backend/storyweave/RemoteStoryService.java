@@ -95,8 +95,6 @@ public final class RemoteStoryService implements StoryService {
                                                     "type", "integer",
                                                     "minimum", 1,
                                                     "maximum", 100))
-//                                    "required", List.of("value"),
-//                                    "additionalProperties", false
                             ))
             ));
         }

@@ -114,8 +114,20 @@
         <p class="eyebrow">The final chapter</p>
         <h1>Results</h1>
         <p class="lead">Every contribution changed the ending.</p>
-        <ol id="scoreList" class="score-list"></ol>
-        <button class="primary-button" type="button" onclick="window.location.reload()">Return home</button>
+        <div class="score-table-wrap">
+            <table class="score-table" aria-label="Final player scores">
+                <thead>
+                <tr>
+                    <th scope="col">Rank</th>
+                    <th scope="col">Player</th>
+                    <th scope="col">Similarity</th>
+                    <th scope="col">Error penalty</th>
+                    <th scope="col">Overall</th>
+                </tr>
+                </thead>
+                <tbody id="scoreTableBody"></tbody>
+            </table>
+        </div>
     </section>
 </main>
 
